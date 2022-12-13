@@ -1,0 +1,101 @@
+package org.example.service;
+
+import org.example.InfoMessage;
+
+import java.io.*;
+import java.net.Socket;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+public class ServerService implements Readable, Writeable {
+    private static int counter;
+    private static final Map<Integer, String> clientInfo = new HashMap<>();
+    private static final String pathToFile = "src/main/java/org/example/files/activeConnections.txt";
+    private static final File activeConnections = new File(pathToFile);
+
+
+    public void getFileFromClient(Socket socket) {
+
+        Writeable.messageSender(socket, InfoMessage.pathToFile);
+
+        try {
+            String pathFromClient = Readable.messageReader(socket);
+            String pathToClientFile = "src/main/java/org/example/files/" + pathFromClient;
+
+            String file = Readable.messageReader(socket);
+
+            File fileFromClient = new File(pathToClientFile);
+            fileFromClient.createNewFile();
+
+            FileOutputStream fileOutputStream = new FileOutputStream(fileFromClient, false);
+            fileOutputStream.write(file.getBytes());
+
+            Writeable.messageSender(socket, InfoMessage.menuMessage);
+
+        } catch (IOException e) {
+            System.out.println("Cannot read file");
+        }
+    }
+
+
+    public void getMessageFromClient(Socket socket) {
+
+        Writeable.messageSender(socket, InfoMessage.clientMessage);
+
+        String message = "";
+        while (!message.equals("exit")) {
+            message = Readable.messageReader(socket);
+            System.out.println("Client " + socket.getPort() + ": " + message);
+        }
+        Writeable.messageSender(socket, InfoMessage.menuMessage);
+    }
+
+
+    public void getClientInfo(Socket socket) {
+        counter++;
+        LocalDateTime timeOfConnection = LocalDateTime.now();
+        try {
+
+            FileOutputStream fileOutputStream = new FileOutputStream(activeConnections, false);
+            String message = "client-" + counter + ", socket:" + socket.getPort() + " " + timeOfConnection + "\n";
+            clientInfo.put(socket.getPort(), message);
+            fileOutputStream.write(clientInfo.toString().getBytes());
+
+        } catch (IOException e) {
+            System.out.println(InfoMessage.clientDisconnected + socket.getPort());
+        }
+    }
+
+
+    public void deleteInactiveClient() {
+        for (Integer socket1 : clientInfo.keySet()) {
+            clientInfo.remove(socket1);
+            try {
+                FileOutputStream fileOutputStream = new FileOutputStream(activeConnections, false);
+                fileOutputStream.write(clientInfo.toString().getBytes());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public void exitOrContinue(Socket socket) {
+
+        while (!(socket.isClosed())) {
+            Writeable.messageSender(socket, InfoMessage.menuMessage);
+            switch (Readable.messageReader(socket)) {
+                case "1" -> getFileFromClient(socket);
+                case "2" -> getMessageFromClient(socket);
+                case "exit" -> {
+                    try {
+                        socket.close();
+                        deleteInactiveClient();
+                    } catch (IOException e) {
+                        System.out.println(InfoMessage.clientDisconnected + socket.getPort());
+                    }
+                }
+            }
+        }
+    }
+}
